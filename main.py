@@ -2,9 +2,10 @@
 import json
 import csv
 import beams
-
+import sys
 try:
-    with open("config.json","r") as f:
+    config_file=sys.argv[1] if len(sys.argv)>1 else "config.json"
+    with open(config_file,"r") as f:
         data=json.load(f)
 
     E=data["E"]
@@ -14,6 +15,24 @@ try:
     uniform_loads=data["uniform_loads"]
     fraction=data["off_center_fraction"]
     cases=data["beam_cases"]
+
+
+
+
+
+
+    
+    if not spans:
+        raise ValueError("At least one span is required")
+
+    if not point_loads:
+        raise ValueError("At least one point load is required")
+
+    if not uniform_loads: 
+        raise ValueError("At least one uniform load is required")
+
+    if not cases:
+        raise ValueError("At least one beam case is required")
 
     if E<=0 or I<=0:
         raise ValueError("E and I must be positive")
