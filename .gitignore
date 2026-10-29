@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+day2.zip
+results.csv
+beam results.csv
