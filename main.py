@@ -1,7 +1,11 @@
 
 import json
 import csv
+import os
+import numpy as np
+import pandas as pd
 import beams
+import beam_plotting as plotting
 
 try:
     with open("config.json","r") as f:
@@ -39,15 +43,20 @@ try:
         if case not in functions:
             raise ValueError("Unknown beam case: "+case)
 
+    
+
     results=[]
+    os.makedirs("outputs",exist_ok=True)
 
     for case in cases:
-        for L in spans:
-            if case in ["ss_center","ss_point","cantilever_point"]:
-                loads=point_loads
-            else:
-                loads=uniform_loads
+        case_frames=[]
 
+        if case in ["ss_center","ss_point","cantilever_point"]:
+            loads=point_loads
+        else:
+            loads=uniform_loads
+
+        for L in spans:
             for load in loads:
                 beam={"L":L,"E":E,"I":I}
 
@@ -59,11 +68,31 @@ try:
                 else:
                     beam["w"]=load
 
-                x_values=[L*i/100 for i in range(101)]
-                deflections=[functions[case](x,beam) for x in x_values]
-                max_deflection=max(deflections)
+                x_values=np.linspace(0,L,101)
+                deflections=functions[case](x_values,beam)
 
+                frame=pd.DataFrame({
+                    "beam_type":case,
+                    "span_m":L,
+                    "load":load,
+                    "position_m":x_values,
+                    "deflection_m":deflections
+                })
+
+                case_frames.append(frame)
+
+                max_deflection=np.max(deflections)
                 results.append([case,L,load,max_deflection])
+
+        case_data=pd.concat(case_frames,ignore_index=True)
+        case_data.to_csv("outputs/"+case+".csv",index=False)
+        load_unit="N" if case in ["ss_center","ss_point","cantilever_point"] else "N/m"
+        plotting.create_plot(case,loads[len(loads)//2],load_unit)
+
+    with open("results.csv","w",newline="") as f:
+        writer=csv.writer(f)
+        writer.writerow(["beam_type","span_m","load_N_or_N_per_m","max_deflection_m"])
+        writer.writerows(results)
 
     with open("results.csv","w",newline="") as f:
         writer=csv.writer(f)

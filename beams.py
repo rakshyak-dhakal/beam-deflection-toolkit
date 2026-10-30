@@ -1,19 +1,22 @@
 
+import numpy as np
+
+
 def ss_center(x,beam):
+    x=np.asarray(x)
     L=beam["L"]
     P=beam["P"]
     E=beam["E"]
     I=beam["I"]
 
-    if x<=L/2:
-        v=P*x*(3*L**2-4*x**2)/(48*E*I)
-    else:
-        v=P*(L-x)*(3*L**2-4*(L-x)**2)/(48*E*I)
+    v1=P*x*(3*L**2-4*x**2)/(48*E*I)
+    v2=P*(L-x)*(3*L**2-4*(L-x)**2)/(48*E*I)
 
-    return v
+    return np.where(x<=L/2,v1,v2)
 
 
 def ss_point(x,beam):
+    x=np.asarray(x)
     L=beam["L"]
     P=beam["P"]
     a=beam["a"]
@@ -21,15 +24,14 @@ def ss_point(x,beam):
     I=beam["I"]
     b=L-a
 
-    if x<=a:
-        v=P*b*x*(L**2-b**2-x**2)/(6*L*E*I)
-    else:
-        v=P*a*(L-x)*(L**2-a**2-(L-x)**2)/(6*L*E*I)
+    v1=P*b*x*(L**2-b**2-x**2)/(6*L*E*I)
+    v2=P*a*(L-x)*(L**2-a**2-(L-x)**2)/(6*L*E*I)
 
-    return v
+    return np.where(x<=a,v1,v2)
 
 
 def ss_udl(x,beam):
+    x=np.asarray(x)
     L=beam["L"]
     w=beam["w"]
     E=beam["E"]
@@ -41,6 +43,7 @@ def ss_udl(x,beam):
 
 
 def cantilever_point(x,beam):
+    x=np.asarray(x)
     L=beam["L"]
     P=beam["P"]
     E=beam["E"]
@@ -52,6 +55,7 @@ def cantilever_point(x,beam):
 
 
 def cantilever_udl(x,beam):
+    x=np.asarray(x)
     L=beam["L"]
     w=beam["w"]
     E=beam["E"]
