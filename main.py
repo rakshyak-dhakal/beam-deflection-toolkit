@@ -3,191 +3,229 @@ import json
 import csv
 import beams
 import sys
-try:
-    config_file=sys.argv[1] if len(sys.argv)>1 else "config.json"
-    with open(config_file,"r") as f:
-        data=json.load(f)
-
-    E=data["E"]
-    I=data["I"]
-    spans=data["spans"]
-    point_loads=data["point_loads"]
-    uniform_loads=data["uniform_loads"]
-    fraction=data["off_center_fraction"]
-    cases=data["beam_cases"]
 
 
+def run_beam_analysis():
 
+    try:
+        config_file=sys.argv[1] if len(sys.argv)>1 else "config.json"
 
+        with open(config_file,"r") as f:
+            data=json.load(f)
 
+        E=data["E"]
+        I=data["I"]
+        spans=data["spans"]
+        point_loads=data["point_loads"]
+        uniform_loads=data["uniform_loads"]
+        fraction=data["off_center_fraction"]
+        cases=data["beam_cases"]
 
-    
-    if not spans:
-        raise ValueError("At least one span is required")
+        if not spans:
+            raise ValueError("At least one span is required")
 
-    if not point_loads:
-        raise ValueError("At least one point load is required")
+        if not point_loads:
+            raise ValueError("At least one point load is required")
 
-    if not uniform_loads: 
-        raise ValueError("At least one uniform load is required")
+        if not uniform_loads:
+            raise ValueError("At least one uniform load is required")
 
-    if not cases:
-        raise ValueError("At least one beam case is required")
+        if not cases:
+            raise ValueError("At least one beam case is required")
 
-    if E<=0 or I<=0:
-        raise ValueError("E and I must be positive")
+        if E<=0 or I<=0:
+            raise ValueError("E and I must be positive")
 
-    if any(L<=0 for L in spans):
-        raise ValueError("Spans must be positive")
+        if any(L<=0 for L in spans):
+            raise ValueError("Spans must be positive")
 
-    if any(P<=0 for P in point_loads+uniform_loads):
-        raise ValueError("Loads must be positive or non zero")
+        if any(P<=0 for P in point_loads+uniform_loads):
+            raise ValueError("Loads must be positive or non zero")
 
-    if fraction<=0 or fraction>=1:
-        raise ValueError("Off-center fraction must be between 0 and 1")
+        if fraction<=0 or fraction>=1:
+            raise ValueError("Off-center fraction must be between 0 and 1")
 
-    functions={
-        "ss_center":beams.ss_center,
-        "ss_point":beams.ss_point,
-        "ss_udl":beams.ss_udl,
-        "cantilever_point":beams.cantilever_point,
-        "cantilever_udl":beams.cantilever_udl
-    }
+        functions={
+            "ss_center":beams.ss_center,
+            "ss_point":beams.ss_point,
+            "ss_udl":beams.ss_udl,
+            "cantilever_point":beams.cantilever_point,
+            "cantilever_udl":beams.cantilever_udl
+        }
 
-    for case in cases:
-        if case not in functions:
-            raise ValueError("Unknown beam case: "+case)
+        for case in cases:
+            if case not in functions:
+                raise ValueError("Unknown beam case: "+case)
 
-    results=[]
+        results=[]
 
-    for case in cases:
-        for L in spans:
-            if case in ["ss_center","ss_point","cantilever_point"]:
-                loads=point_loads
+        for case in cases:
+            for L in spans:
+
+                if case in ["ss_center","ss_point","cantilever_point"]:
+                    loads=point_loads
+                else:
+                    loads=uniform_loads
+
+                for load in loads:
+
+                    beam={"L":L,"E":E,"I":I}
+
+                    if case in ["ss_center","cantilever_point"]:
+                        beam["P"]=load
+                    elif case=="ss_point":
+                        beam["P"]=load
+                        beam["a"]=fraction*L
+                    else:
+                        beam["w"]=load
+
+                    x_values=[L*i/100 for i in range(101)]
+                    deflections=[functions[case](x,beam) for x in x_values]
+                    max_deflection=max(deflections)
+
+                    results.append([case,L,load,max_deflection])
+
+        with open("results.csv","w",newline="") as f:
+            writer=csv.writer(f)
+            writer.writerow(["beam_type","span_m","load_N_or_N_per_m","max_deflection_m"])
+            writer.writerows(results)
+
+        with open("results.csv","r") as f:
+            reader=csv.reader(f)
+            next(reader)
+            saved_results=list(reader)
+
+        print("Total cases:",len(saved_results))
+        print("Results saved to results.csv")
+
+        for case in cases:
+            case_results=[r for r in saved_results if r[0]==case]
+            largest=max(case_results,key=lambda r:float(r[3]))
+
+            print(case,": span =",largest[1],"m, load =",largest[2],
+                  ", maximum deflection =",format(float(largest[3]),".6e"),"m")
+
+        print("\nSELF-CHECKS")
+        print(f"{'Beam case':<22}{'Span':>6}{'Load':>8}{'Numerical':>16}{'Analytical':>16}{'Result':>10}")
+
+        checks=[
+            ("ss_center",point_loads),
+            ("ss_udl",uniform_loads),
+            ("cantilever_point",point_loads),
+            ("cantilever_udl",uniform_loads)
+        ]
+
+        for case,loads_to_use in checks:
+            for L in spans:
+                for load in loads_to_use:
+
+                    row=next(r for r in results
+                             if r[0]==case and r[1]==L and r[2]==load)
+
+                    numerical=row[3]
+
+                    if case=="ss_center":
+                        analytical=load*L**3/(48*E*I)
+                    elif case=="ss_udl":
+                        analytical=5*load*L**4/(384*E*I)
+                    elif case=="cantilever_point":
+                        analytical=load*L**3/(3*E*I)
+                    else:
+                        analytical=load*L**4/(8*E*I)
+
+                    error=abs(numerical-analytical)/abs(analytical)
+                    status="PASS" if error<=1e-9 else "FAIL"
+
+                    print(f"{case:<22}{L:>6}{load:>8}{numerical:>16.6e}{analytical:>16.6e}{status:>10}")
+
+        print("\nPIECEWISE FUNCTION CHECKS")
+        print(f"{'Beam case':<22}{'Continuity':>14}{'Supports':>12}")
+
+        for case in ["ss_center","ss_point"]:
+
+            L=2
+            beam={"L":L,"E":E,"I":I,"P":200}
+
+            if case=="ss_point":
+                beam["a"]=fraction*L
+                break_point=beam["a"]
             else:
-                loads=uniform_loads
+                break_point=L/2
 
-            for load in loads:
-                beam={"L":L,"E":E,"I":I}
+            func=functions[case]
 
-                if case in ["ss_center","cantilever_point"]:
-                    beam["P"]=load
-                elif case=="ss_point":
-                    beam["P"]=load
-                    beam["a"]=fraction*L
-                else:
-                    beam["w"]=load
+            left=func(break_point-1e-8,beam)
+            right=func(break_point+1e-8,beam)
+            start=func(0,beam)
+            end=func(L,beam)
 
-                x_values=[L*i/100 for i in range(101)]
-                deflections=[functions[case](x,beam) for x in x_values]
-                max_deflection=max(deflections)
+            continuous=abs(left-right)<1e-10
+            supports=abs(start)<1e-12 and abs(end)<1e-12
 
-                results.append([case,L,load,max_deflection])
+            continuity_status="PASS" if continuous else "FAIL"
+            support_status="PASS" if supports else "FAIL"
 
-    with open("results.csv","w",newline="") as f:
-        writer=csv.writer(f)
-        writer.writerow(["beam_type","span_m","load_N_or_N_per_m","max_deflection_m"])
-        writer.writerows(results)
+            print(f"{case:<22}{continuity_status:>14}{support_status:>12}")
 
-    with open("results.csv","r") as f:
-        reader=csv.reader(f)
-        next(reader)
-        saved_results=list(reader)
+        print("\nLIST COMPREHENSION CHECK")
 
-    print("Total cases:",len(saved_results))
-    print("Results saved to results.csv")
+        loop_squares=[]
+        for i in range(1,11):
+            loop_squares.append(i**2)
 
-    for case in cases:
-        case_results=[r for r in saved_results if r[0]==case]
-        largest=max(case_results,key=lambda r:float(r[3]))
-        print(case,": span =",largest[1],"m, load =",largest[2],
-              ", maximum deflection =",format(float(largest[3]),".6e"),"m")
-    
-    
-    print("\nSELF-CHECKS")
-    print(f"{'Beam case':<22}{'Span':>6}{'Load':>8}{'Numerical':>16}{'Analytical':>16}{'Result':>10}")
+        comprehension_squares=[i**2 for i in range(1,11)]
 
-    checks=[
-        ("ss_center",point_loads),
-        ("ss_udl",uniform_loads),
-        ("cantilever_point",point_loads),
-        ("cantilever_udl",uniform_loads)
-    ]
+        print("Loop result:         ",loop_squares)
+        print("Comprehension result:",comprehension_squares)
+        print("Same result:",loop_squares==comprehension_squares)
 
-    for case,loads_to_use in checks:
-        for L in spans:
-            for load in loads_to_use:
-                row=next(r for r in results
-                         if r[0]==case and r[1]==L and r[2]==load)
+    except FileNotFoundError:
+        print("Error: config.json was not found.")
 
-                numerical=row[3]
+    except (ValueError,KeyError,TypeError) as e:
+        print("Error:",e)
 
-                if case=="ss_center":
-                    analytical=load*L**3/(48*E*I)
-                elif case=="ss_udl":
-                    analytical=5*load*L**4/(384*E*I)
-                elif case=="cantilever_point":
-                    analytical=load*L**3/(3*E*I)
-                else:
-                    analytical=load*L**4/(8*E*I)
-
-                error=abs(numerical-analytical)/abs(analytical)
-                status="PASS" if error<=1e-9 else "FAIL"
-
-                print(f"{case:<22}{L:>6}{load:>8}{numerical:>16.6e}{analytical:>16.6e}{status:>10}")
-
-    print("\nPIECEWISE FUNCTION CHECKS")
-    print(f"{'Beam case':<22}{'Continuity':>14}{'Supports':>12}")
-
-    for case in ["ss_center","ss_point"]:
-        L=2
-        beam={"L":L,"E":E,"I":I,"P":200}
-
-        if case=="ss_point":
-            beam["a"]=fraction*L
-            break_point=beam["a"]
-        else:
-            break_point=L/2
-
-        func=functions[case]
-
-        left=func(break_point-1e-8,beam)
-        right=func(break_point+1e-8,beam)
-        start=func(0,beam)
-        end=func(L,beam)
-
-        continuous=abs(left-right)<1e-10
-        supports=abs(start)<1e-12 and abs(end)<1e-12
-
-        continuity_status="PASS" if continuous else "FAIL"
-        support_status="PASS" if supports else "FAIL"
-
-        print(f"{case:<22}{continuity_status:>14}{support_status:>12}")
-
-    print("\nLIST COMPREHENSION CHECK")
-
-    loop_squares=[]
-    for i in range(1,11):
-        loop_squares.append(i**2)
-
-    comprehension_squares=[i**2 for i in range(1,11)]
-
-    print("Loop result:         ",loop_squares)
-    print("Comprehension result:",comprehension_squares)
-    print("Same result:",loop_squares==comprehension_squares)
+    except OSError:
+        print("Error: Could not read or write a file.")
 
 
+def run_tensile_analysis():
+
+    try:
+        from campaign import TestCampaign
+
+        print("\nTENSILE TEST CAMPAIGN")
+        print("--------------------")
+
+        campaign=TestCampaign()
+        summary=campaign.analyze_all()
+
+        campaign.save_summary()
+        campaign.plot_stress_strain_by_material()
+        campaign.plot_yield_strength_boxplot()
+
+        print("\nCAMPAIGN SUMMARY")
+        print("Tests processed:",len(summary))
+        print("Complete tests:",summary["complete"].sum())
+        print("Incomplete or failed tests:",(~summary["complete"]).sum())
+
+        print("\nAVERAGE PROPERTIES BY MATERIAL")
+
+        averages=summary.groupby("material").agg(
+            E_GPa=("E_GPa","mean"),
+            yield_MPa=("yield_MPa","mean"),
+            uts_MPa=("uts_MPa","mean")
+        )
+
+        print(averages.round(2).to_string())
+
+    except Exception as error:
+        print("Tensile analysis error:",error)
 
 
+if __name__=="__main__":
 
-    
-except FileNotFoundError:
-    print("Error: config.json was not found.")
-
-except (ValueError, KeyError, TypeError) as e:
-    print("Error:",e)
-
-except OSError:
-    print("Error: Could not read or write a file.")
-
- 
+    if len(sys.argv)>1 and sys.argv[1]=="tensile":
+        run_tensile_analysis()
+    else:
+        run_beam_analysis()
